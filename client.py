@@ -5,9 +5,12 @@ import threading
 import pickle
 import sys
 import time
+from encoding import *
 
 global connListen
 global id, ind
+global balance
+balance = 10.0
 
 def id2ind(id):
     return ord(id) - ord('A')
@@ -26,16 +29,45 @@ def listening():
         subListenThread.start()
 
 def messageProcessing(conn):
+    global balance
     print("PROCESSING MESSAGE")
     # TODO
-    # 
+    data = conn.recv(1024)
+    while True:
+        if not data:  
+            conn.close()
+            break
+        else:
+            msg = decode(data)
+            print(f"\033[0;37;40mCLIENT {id}: Receive message: {msg}\033[0m")
+            cmd = msg[0]
+            if cmd == "TRANSFER":
+            # receive TRANSFER
+                ## add amount
+                senderId = msg[1]
+                amount = msg[2]
+                assert senderID in ["A", "B", "C", "D"], f"Wrong senderID {senderID} in TRANSFER msg!"
+                balance += int(amount)
+            elif cmd == "MARKER":
+            # receive MARKER
+                print(f"CLIENT {id}: Receive a MARKER!")
+                ## TODO here
+            else:
+                print(f"\033[1;32;40mCLIENT{id} -- ERROR: Receive invalid msg {msg}\033[0m")
+            data = conn.recv()
 
 
 def inputProcessing():
     while True:
         inp = input("Please input command:\n")
         inp = inp.split()
-        if inp[0] == "TRANSFER":
+        if inp[0] == "BALANCE":
+            subInputThread = threading.Thread(
+                target = balanceProcessing, args = (inp, )
+            )
+            subInputThread.daemon = True
+            subInputThread.start()
+        elif inp[0] == "TRANSFER":  # TRANSFER targetClientID amount
             subInputThread = threading.Thread(
                 target = transferProcessing, args = (inp, )
             )
@@ -50,10 +82,36 @@ def inputProcessing():
         else:
             print(f"\033[0;37;40mCLIENT {id}: ERROR - INVALID COMMAND!\033[0m")
 
+def balanceProcessing(inp):
+    cmd = inp[0]
+    assert cmd == "BALANCE", f"Invalid Balance Command!"
+    print(f"CLIENT {id}: My balance is ${balance}.")
 
 def transferProcessing(inp):
+    global balance
     print("TRANSFERING")
-    # TODO here
+    cmd = inp[0]
+    targetID = inp[1]
+    amount = int(inp[2])
+    assert cmd == "TRANSFER", f"Invalid Transfer Command!"
+    if balance < amount:  # can not transfer
+        print(f"CLIENT {id}: INSUFFICIENT BALANCE! balance = ${balance} < amount = ${amount}")
+    else:  # success transfer
+        print(f"CLIENT {id}: Transfering to client {targetID}")
+        # TODO here
+        # update balance
+        balance -= amount
+        # send transfer msg to targetClient
+        conn = socket.socket()
+        conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        conn.bind((addr, portConn))
+        targetAddr = addrList[id2ind(targetID)]
+        targetPortListen = portListenList[id2ind(targetID)]
+        conn.connect((targetAddr, targetPortListen))
+        data = ["TRANSFER", id, amount]  # send TRANSFER msg
+        # time.sleep(3)
+        conn.send(encode(data))
+        conn.close()
 
 
 def snapshotProcessing(inp):
@@ -64,8 +122,10 @@ def snapshotProcessing(inp):
 ## get client index from param
 ## Who am I?
 print(sys.argv)
+if len(sys.argv) != 2:
+    print(f"\033[0;31;40mERROR: Wrong command line parameter number!\033[0m")
 if sys.argv[1] not in ['A', 'B', 'C', 'D']:
-    raise ValueError(f"\033[1;32;40mClient name is {sys.argv[1]}, should be A, B, C or D!\033[0m")
+    print(f"\033[0;31;40mERROR: Wrong command line parameters!\033[0m")
 id = sys.argv[1]
 ind = id2ind(id)
 ## get (addr, portListen)
