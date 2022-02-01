@@ -44,7 +44,7 @@ def messageProcessing(conn):
             if cmd == "TRANSFER":
             # receive TRANSFER
                 ## add amount
-                senderId = msg[1]
+                senderID = msg[1]
                 amount = msg[2]
                 assert senderID in ["A", "B", "C", "D"], f"Wrong senderID {senderID} in TRANSFER msg!"
                 balance += int(amount)
@@ -54,7 +54,7 @@ def messageProcessing(conn):
                 ## TODO here
             else:
                 print(f"\033[1;32;40mCLIENT{id} -- ERROR: Receive invalid msg {msg}\033[0m")
-            data = conn.recv()
+            data = conn.recv(1024)
 
 
 def inputProcessing():
