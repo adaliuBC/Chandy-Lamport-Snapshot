@@ -29,10 +29,11 @@ initID2ifRecordMsgChannel = {}
 initID2completeChannelSenderList = {}
 for id in idList:
     initID2localState[id] = None           # local state (balance)
-    initID2haschannelMarker[id] = None     # 是否已收到首个MARKER
     initID2ifRecordMsgChannel[id] = False  # channel是否存msg
-    initID2channelMsgList[id] = None       # channel存的msg list
+    initID2haschannelMarker[id] = {}       # channel是否已收到首个MARKER
+    initID2channelMsgList[id] = {}         # channel存的msg list
     initID2completeChannelSenderList[id] = []  # channel已经收到第二个MARKER的sender list
+global snapshotList
 snapshotList = {}  # 我作为init proc收到的snapshot列表
 balance = 10.0
 
@@ -52,13 +53,13 @@ def listening():
         subListenThread.daemon = True
         subListenThread.start()
 
-def messageProcessing(conn):
-    global balance
+def messageProcessing(connListen):
+    global balance, snapshotList
     print("PROCESSING MESSAGE")
-    data = conn.recv(1024)
+    data = connListen.recv(1024)
     while True:
         if not data:  
-            conn.close()
+            connListen.close()
             break
         else:
             msg = decode(data)
@@ -87,7 +88,7 @@ def messageProcessing(conn):
                 initID = msg[1]
                 senderID = msg[2]
                 # judge if first MARKER for this channel
-                if not initID2haschannelMarker[initID][senderID]: # is first MARKER for channel
+                if senderID not in initID2haschannelMarker[initID]: # is first MARKER for channel
                     initID2haschannelMarker[initID][senderID] = True
                     # reset channel msg list
                     initID2channelMsgList[initID][senderID] = None
@@ -96,12 +97,13 @@ def messageProcessing(conn):
                     # send MARKER to all outgoing channels
                     # time.sleep(3)
                     for receiverID in connToList:
-                        receiverInd = id2ind[receiverID]
+                        receiverInd = id2ind(receiverID)
                         conn = socket.socket()
                         conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                         conn.bind((addr, portConn))
                         targetAddr = addrList[receiverInd]
                         targetPortListen = portListenList[receiverInd]
+                        print(f"{prefixRed}{targetAddr}:{targetPortListen}{postfix}")
                         conn.connect((targetAddr, targetPortListen))
                         data = ["MARKER", initID, id]  # send TRANSFER msg
                         print(f"{prefixGreen}CLIENT {id}: Send MARKER to client {receiverID}{postfix}")
@@ -134,6 +136,7 @@ def messageProcessing(conn):
                     conn.bind((addr, portConn))
                     targetAddr = addrList[id2ind(initID)]
                     targetPortListen = portListenList[id2ind(initID)]
+                    print(f"{prefixRed}{targetAddr}:{targetPortListen}{postfix}")
                     conn.connect((targetAddr, targetPortListen))
                     # time.sleep(3)
                     conn.send(encode(data))
@@ -142,9 +145,9 @@ def messageProcessing(conn):
 
                     ## clean up localState, inMarkerList, inMsgList
                     initID2localState[initID] = None
-                    initID2channelMsgList[initID] = None
                     initID2ifRecordMsgChannel[initID] = False
-                    initID2haschannelMarker[initID] = None
+                    initID2haschannelMarker[initID] = {}
+                    initID2channelMsgList[initID] = {}
                     initID2completeChannelSenderList[initID] = []
             elif cmd == "SNAPSHOT":
                 # I am the init proc, I receive SNAPSHOT from all processes
@@ -180,7 +183,7 @@ def messageProcessing(conn):
             
             else:
                 print(f"{prefixRed}CLIENT{id} -- ERROR: Receive invalid msg {msg}{postfix}")
-            data = conn.recv(1024)
+            data = connListen.recv(1024)
 
 
 def inputProcessing():
@@ -261,7 +264,7 @@ def snapshotProcessing(inp):
         data = ["MARKER", id, id]  # ["MARKER", initID, senderID]
         print(f"{prefixGreen}CLIENT {id}: SNAPSHOT initial{postfix}")
         conn.send(encode(data))
-        print(f"{prefixGreen}CLIENT {id}: Send MARKER to client {targetID}{postfix}")
+        print(f"{prefixGreen}CLIENT {id}: Send MARKER to client {receiverID}{postfix}")
         conn.close()
     
     ## reset当前记录的incoming channels
