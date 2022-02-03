@@ -29,7 +29,7 @@ initID2ifRecordMsgChannel = {}
 initID2completeChannelSenderList = {}
 for id in idList:
     initID2localState[id] = None           # local state (balance)
-    initID2ifRecordMsgChannel[id] = False  # channel是否存msg
+    initID2ifRecordMsgChannel[id] = {}     # channel是否存msg {initID => {senderID => T/F}}
     initID2haschannelMarker[id] = {}       # channel是否已收到首个MARKER
     initID2channelMsgList[id] = {}         # channel存的msg list
     initID2completeChannelSenderList[id] = []  # channel已经收到第二个MARKER的sender list
@@ -76,7 +76,7 @@ def messageProcessing(connListen):
                 print(f"{prefixYellow}CLIENT {id}: Current balance: ${balance}")
                 # 如果正在snapshot，在对应channel中存msg
                 for initID in idList:
-                    if initID2ifRecordMsgChannel[initID] == True:
+                    if initID2ifRecordMsgChannel[initID][senderID] == True:
                         if not initID2channelMsgList[initID]:
                             initID2channelMsgList[initID][senderID] = [msg]
                         else:
@@ -87,11 +87,11 @@ def messageProcessing(connListen):
                 print(f"{prefixWhite}CLIENT {id}: Receive a MARKER!{postfix}")
                 initID = msg[1]
                 senderID = msg[2]
-                # judge if first MARKER for this channel
-                if senderID not in initID2haschannelMarker[initID]: # is first MARKER for channel
-                    initID2haschannelMarker[initID][senderID] = True
+                # judge if first MARKER
+                if not initID2ifRecordMsgChannel[initID]: # is first MARKER
                     # reset channel msg list
-                    initID2channelMsgList[initID][senderID] = None
+                    for posSenderID in connFromList:
+                        initID2channelMsgList[initID][posSenderID] = []
                     # record localState
                     initID2localState[initID] = balance
                     # send MARKER to all outgoing channels
@@ -110,19 +110,26 @@ def messageProcessing(connListen):
                         conn.send(encode(data))
                         conn.close()
                     # record msgs from incoming channels
-                    initID2ifRecordMsgChannel[initID] = True
+                    for posSenderID in connFromList:
+                        if senderID == posSenderID:  
+                            # first MARKER's in channel, set as empty
+                            initID2ifRecordMsgChannel[initID][posSenderID] = False
+                        else:
+                            # other in channel, begin recording
+                            initID2ifRecordMsgChannel[initID][posSenderID] = True
                 else:  # following MARKER for channel
                     # 停止记录channel的新msgs
-                    initID2ifRecordMsgChannel[initID] = False
-                    initID2completeChannelSenderList[initID].append(senderID)
+                    assert initID2ifRecordMsgChannel[initID][senderID] == True, \
+                        f"{prefixRed}CLIENT {id}: ERROR! Following MARKER received channel is not recording!{postfix}"
+                    initID2ifRecordMsgChannel[initID][senderID] = False
 
                 # 检查是否所有incoming channels都收到了MARKER 
-                ## TODO: ？？？第几个MARKER？
                 isSnapshotTerminate = True
-                for senderID in connFromList:
-                    senderInd = id2ind(senderID)
-                    if senderID not in initID2completeChannelSenderList[initID]:
-                        isSnapshotTerminate = False
+                if not initID2ifRecordMsgChannel[initID]:
+                    isSnapshotTerminate = False
+                for senderID, flag in initID2ifRecordMsgChannel[initID].items():
+                    if flag != False:
+                        isSnapshotTerminate= False
                 if isSnapshotTerminate:  # 如果都收到了，就terminate
                     # build SNAPSHOT msg
                     data = ["SNAPSHOT", id, initID2localState[initID]]
@@ -141,11 +148,12 @@ def messageProcessing(connListen):
                     # time.sleep(3)
                     conn.send(encode(data))
                     print(f"{prefixYellow}CLIENT {id}: Send SNAPSHOT to client {initID}{postfix}")
+                    print(f"{prefixYellow}CLIENT {id}: {data}{postfix}")
                     conn.close()
 
                     ## clean up localState, inMarkerList, inMsgList
                     initID2localState[initID] = None
-                    initID2ifRecordMsgChannel[initID] = False
+                    initID2ifRecordMsgChannel[initID] = {}
                     initID2haschannelMarker[initID] = {}
                     initID2channelMsgList[initID] = {}
                     initID2completeChannelSenderList[initID] = []
@@ -170,13 +178,14 @@ def messageProcessing(connListen):
                         print(f"{prefixGreen}  CLIENT {senderID}: Balance ${senderLocalState}{postfix}")
                         print(f"{prefixGreen}  Incoming channels for CLIENT {id}:")
                         for channelState in senderChannelState:
+                            print(senderChannelState)
                             chaSenderID = channelState[0]
                             chaReceiverID = channelState[1]
                             chaMsg = channelState[2]
                             print(f"{prefixGreen}    CLIENT {chaSenderID} -> CLIENT {chaReceiverID}: {chaMsg}{postfix}")
                     # print and delete
                     snapshotList = {}
-                    initID2ifRecordMsgChannel[id] = False
+                    initID2ifRecordMsgChannel[id] = {}
                     initID2channelMsgList[id] = None
                     initID2localState[id] = None
                     # 彻底结束snapshot流程
@@ -247,7 +256,7 @@ def transferProcessing(inp):
 
 def snapshotProcessing(inp):
     ## record local state
-    global localState
+    global initID2localState
     global id, ind
     initID2localState[id] = balance
     ## send MARKER on all outgoing channels
@@ -272,8 +281,9 @@ def snapshotProcessing(inp):
         print(f"{prefixRed}CLIENT {id}: ERROR: in channel should be empty{postfix}")
         initID2channelMsgList[id] = None
     ## starts recording incoming msgs on all incoming channels
-    initID2ifRecordMsgChannel[id] = True
-        
+    initID2ifRecordMsgChannel[id] = {}
+    for senderID in connFromList:
+        initID2ifRecordMsgChannel[id][senderID] = True        
 
     
 
