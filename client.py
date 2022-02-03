@@ -21,15 +21,18 @@ global balance
 global localState
 global initID2localState, initID2haschannelMarker
 global initID2channelMsgList, initID2ifRecordMsgChannel
+global initID2completeChannelSenderList
 initID2localState = {}
 initID2haschannelMarker = {}
 initID2channelMsgList = {}
 initID2ifRecordMsgChannel = {}
+initID2completeChannelSenderList = {}
 for id in idList:
     initID2localState[id] = None           # local state (balance)
     initID2haschannelMarker[id] = None     # 是否已收到首个MARKER
     initID2ifRecordMsgChannel[id] = False  # channel是否存msg
     initID2channelMsgList[id] = None       # channel存的msg list
+    initID2completeChannelSenderList[id] = []  # channel已经收到第二个MARKER的sender list
 snapshotList = {}  # 我作为init proc收到的snapshot列表
 balance = 10.0
 
@@ -81,17 +84,16 @@ def messageProcessing(conn):
             elif cmd == "MARKER":
             # receive MARKER
                 print(f"{prefixWhite}CLIENT {id}: Receive a MARKER!{postfix}")
-                ## TODO here
                 initID = msg[1]
                 senderID = msg[2]
-                if not initID2haschannelMarker[initID][senderID]:
-                    ## first MARKER
-                    ## let in channel be empty
+                # judge if first MARKER for this channel
+                if not initID2haschannelMarker[initID][senderID]: # is first MARKER for channel
                     initID2haschannelMarker[initID][senderID] = True
+                    # reset channel msg list
                     initID2channelMsgList[initID][senderID] = None
-                    ## record localState
+                    # record localState
                     initID2localState[initID] = balance
-                    ## send MARKER on outgoing channels
+                    # send MARKER to all outgoing channels
                     # time.sleep(3)
                     for receiverID in connToList:
                         receiverInd = id2ind[receiverID]
@@ -105,27 +107,28 @@ def messageProcessing(conn):
                         print(f"{prefixGreen}CLIENT {id}: Send MARKER to client {receiverID}{postfix}")
                         conn.send(encode(data))
                         conn.close()
-                    ## record msgs from incoming channels
+                    # record msgs from incoming channels
                     initID2ifRecordMsgChannel[initID] = True
-                else:  # not first MARKER
-                ## following MARKER
-                    ## set the state of ckj be all msgs between first and this MARKER
+                else:  # following MARKER for channel
+                    # 停止记录channel的新msgs
                     initID2ifRecordMsgChannel[initID] = False
+                    initID2completeChannelSenderList[initID].append(senderID)
 
-                ## check if MARKERS are received from all incoming channels
+                # 检查是否所有incoming channels都收到了MARKER 
+                ## TODO: ？？？第几个MARKER？
                 isSnapshotTerminate = True
                 for senderID in connFromList:
                     senderInd = id2ind(senderID)
-                    if senderID not in initID2haschannelMarker[initID].kets():
+                    if senderID not in initID2completeChannelSenderList[initID]:
                         isSnapshotTerminate = False
-                if isSnapshotTerminate:
-                    ## if yes, 
-                    ## build SNAPSHOT msg
+                if isSnapshotTerminate:  # 如果都收到了，就terminate
+                    # build SNAPSHOT msg
                     data = ["SNAPSHOT", id, initID2localState[initID]]
                     for senderID, state in initID2channelMsgList[initID].items():
-                        channelState = [senderID, id, state]
+                        channelState = [senderID, id, state]  
+                        # sender->me的channel，state是msg list
                         data.append(channelState)
-                    # build conn and send SNAPSHOT msg to init proc
+                    # send SNAPSHOT msg to init proc
                     conn = socket.socket()
                     conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                     conn.bind((addr, portConn))
@@ -138,30 +141,43 @@ def messageProcessing(conn):
                     conn.close()
 
                     ## clean up localState, inMarkerList, inMsgList
+                    initID2localState[initID] = None
                     initID2channelMsgList[initID] = None
                     initID2ifRecordMsgChannel[initID] = False
                     initID2haschannelMarker[initID] = None
-                    initID2localState[initID] = None
+                    initID2completeChannelSenderList[initID] = []
             elif cmd == "SNAPSHOT":
-                # I am the init proc
-                # if I receive snapshot from all processes, concat and print 
+                # I am the init proc, I receive SNAPSHOT from all processes
+                # save snapshot
                 senderID = msg[1]
                 senderLocalState = msg[2]
                 senderChannelState = msg[3:]
-                snapshotList[senderID] = senderLocalState + senderChannelState
-
+                snapshotList[senderID] = [senderLocalState, senderChannelState]
+                # 如果收到所有snapshot，就concat并且print
                 receiveAllSnapshot = True
                 for pID in idList:
                     if pID not in snapshotList.keys():
                         receiveAllSnapshot = False
                 if receiveAllSnapshot:
-                    print("TERMINATE SNAPSHOT!")
-                    for k, v in snapshotList.items():
-                        print(k, v)
-                    print("TERMINATE TERMINATE")
+                    print(f"{prefixGreen}CLIENT {id}: SNAPSHOT complete{postfix}")
+                    print(f"{prefixGreen}CLIENT {id}: Balance ${initID2localState[id]}{postfix}")
+                    for senderID, senderSnapshot in snapshotList.items():
+                        senderLocalState = senderSnapshot[0]
+                        senderChannelState = senderSnapshot[1:]
+                        print(f"{prefixGreen}  CLIENT {senderID}: Balance ${senderLocalState}{postfix}")
+                        print(f"{prefixGreen}  Incoming channels for CLIENT {id}:")
+                        for channelState in senderChannelState:
+                            chaSenderID = channelState[0]
+                            chaReceiverID = channelState[1]
+                            chaMsg = channelState[2]
+                            print(f"{prefixGreen}    CLIENT {chaSenderID} -> CLIENT {chaReceiverID}: {chaMsg}{postfix}")
+                    # print and delete
                     snapshotList = {}
-
-
+                    initID2ifRecordMsgChannel[id] = False
+                    initID2channelMsgList[id] = None
+                    initID2localState[id] = None
+                    # 彻底结束snapshot流程
+            
             else:
                 print(f"{prefixRed}CLIENT{id} -- ERROR: Receive invalid msg {msg}{postfix}")
             data = conn.recv(1024)
@@ -227,24 +243,23 @@ def transferProcessing(inp):
 
 
 def snapshotProcessing(inp):
-    # TODO here
     ## record local state
     global localState
     global id, ind
     initID2localState[id] = balance
     ## send MARKER on all outgoing channels
     # time.sleep(3)
-    for targetID in connToList:
-        targetInd = id2ind(targetID)
-        targetAddr = addrList[targetInd]
-        targetPortListen = portListenList[targetInd]
+    for receiverID in connToList:
+        receiverInd = id2ind(receiverID)
+        targetAddr = addrList[receiverInd]
+        targetPortListen = portListenList[receiverInd]
         # build conn for this port
         conn = socket.socket()
         conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         conn.bind((addr, portConn))
         conn.connect((targetAddr, targetPortListen))
         data = ["MARKER", id, id]  # ["MARKER", initID, senderID]
-        print(f"{prefixGreen}CLIENT {id}: I am initialing a snapshot process{postfix}")
+        print(f"{prefixGreen}CLIENT {id}: SNAPSHOT initial{postfix}")
         conn.send(encode(data))
         print(f"{prefixGreen}CLIENT {id}: Send MARKER to client {targetID}{postfix}")
         conn.close()
