@@ -19,12 +19,18 @@ global connListen
 global id, ind
 global balance
 global localState
-initID2localState = {'A': None, 'B': None, 'C': None, 'D': None}  # save state for different processes {'A': 10, 'B': 5, ...}
-initID2hasMarkerInChannel = {'A': None, 'B': None, 'C': None, 'D': None}  # save the MARKERS for different incoming channels
-initID2inChannelMsgList = {'A': None, 'B': None, 'C': None, 'D': None}
-initID2ifRecordInChannelMsgList = {'A': False, 'B': False, 'C': False, 'D': False}
-snapshotList = {}
-#outChannel
+global initID2localState, initID2haschannelMarker
+global initID2channelMsgList, initID2ifRecordMsgChannel
+initID2localState = {}
+initID2haschannelMarker = {}
+initID2channelMsgList = {}
+initID2ifRecordMsgChannel = {}
+for id in idList:
+    initID2localState[id] = None           # local state (balance)
+    initID2haschannelMarker[id] = None     # 是否已收到首个MARKER
+    initID2ifRecordMsgChannel[id] = False  # channel是否存msg
+    initID2channelMsgList[id] = None       # channel存的msg list
+snapshotList = {}  # 我作为init proc收到的snapshot列表
 balance = 10.0
 
 def id2ind(id):
@@ -46,7 +52,6 @@ def listening():
 def messageProcessing(conn):
     global balance
     print("PROCESSING MESSAGE")
-    # TODO
     data = conn.recv(1024)
     while True:
         if not data:  
@@ -58,19 +63,20 @@ def messageProcessing(conn):
             cmd = msg[0]
             if cmd == "TRANSFER":
             # receive TRANSFER
-                ## add amount
+                # 更新 balance
                 senderID = msg[1]
                 amount = msg[2]
-                assert senderID in ["A", "B", "C", "D"], f"{prefixRed}Wrong senderID {senderID} in TRANSFER msg!{postfix}"
+                assert senderID in idList, f"{prefixRed}Wrong senderID {senderID} in TRANSFER msg!{postfix}"
                 balance += int(amount)
                 print(f"{prefixYellow}CLIENT {id}: Receive ${amount} from CLIENT {senderID}")
                 print(f"{prefixYellow}CLIENT {id}: Current balance: ${balance}")
+                # 如果正在snapshot，在对应channel中存msg
                 for initID in idList:
-                    if initID2ifRecordInChannelMsgList[initID] == True:
-                        if not initID2inChannelMsgList[initID]:
-                            initID2inChannelMsgList[initID][senderID] = [msg]
+                    if initID2ifRecordMsgChannel[initID] == True:
+                        if not initID2channelMsgList[initID]:
+                            initID2channelMsgList[initID][senderID] = [msg]
                         else:
-                            initID2inChannelMsgList[initID][senderID].append(msg)
+                            initID2channelMsgList[initID][senderID].append(msg)
             
             elif cmd == "MARKER":
             # receive MARKER
@@ -78,11 +84,11 @@ def messageProcessing(conn):
                 ## TODO here
                 initID = msg[1]
                 senderID = msg[2]
-                if not initID2hasMarkerInChannel[initID][senderID]:
+                if not initID2haschannelMarker[initID][senderID]:
                     ## first MARKER
                     ## let in channel be empty
-                    initID2hasMarkerInChannel[initID][senderID] = True
-                    initID2inChannelMsgList[initID][senderID] = None
+                    initID2haschannelMarker[initID][senderID] = True
+                    initID2channelMsgList[initID][senderID] = None
                     ## record localState
                     initID2localState[initID] = balance
                     ## send MARKER on outgoing channels
@@ -100,23 +106,23 @@ def messageProcessing(conn):
                         conn.send(encode(data))
                         conn.close()
                     ## record msgs from incoming channels
-                    initID2ifRecordInChannelMsgList[initID] = True
+                    initID2ifRecordMsgChannel[initID] = True
                 else:  # not first MARKER
                 ## following MARKER
                     ## set the state of ckj be all msgs between first and this MARKER
-                    initID2ifRecordInChannelMsgList[initID] = False
+                    initID2ifRecordMsgChannel[initID] = False
 
                 ## check if MARKERS are received from all incoming channels
                 isSnapshotTerminate = True
                 for senderID in connFromList:
                     senderInd = id2ind(senderID)
-                    if senderID not in initID2hasMarkerInChannel[initID].kets():
+                    if senderID not in initID2haschannelMarker[initID].kets():
                         isSnapshotTerminate = False
                 if isSnapshotTerminate:
                     ## if yes, 
                     ## build SNAPSHOT msg
                     data = ["SNAPSHOT", id, initID2localState[initID]]
-                    for senderID, state in initID2inChannelMsgList[initID].items():
+                    for senderID, state in initID2channelMsgList[initID].items():
                         channelState = [senderID, id, state]
                         data.append(channelState)
                     # build conn and send SNAPSHOT msg to init proc
@@ -132,9 +138,9 @@ def messageProcessing(conn):
                     conn.close()
 
                     ## clean up localState, inMarkerList, inMsgList
-                    initID2inChannelMsgList[initID] = None
-                    initID2ifRecordInChannelMsgList[initID] = False
-                    initID2hasMarkerInChannel[initID] = None
+                    initID2channelMsgList[initID] = None
+                    initID2ifRecordMsgChannel[initID] = False
+                    initID2haschannelMarker[initID] = None
                     initID2localState[initID] = None
             elif cmd == "SNAPSHOT":
                 # I am the init proc
@@ -145,7 +151,7 @@ def messageProcessing(conn):
                 snapshotList[senderID] = senderLocalState + senderChannelState
 
                 receiveAllSnapshot = True
-                for pID in ['A','B','C','D']:
+                for pID in idList:
                     if pID not in snapshotList.keys():
                         receiveAllSnapshot = False
                 if receiveAllSnapshot:
@@ -244,11 +250,11 @@ def snapshotProcessing(inp):
         conn.close()
     
     ## reset当前记录的incoming channels
-    if initID2inChannelMsgList[id]:
+    if initID2channelMsgList[id]:
         print(f"{prefixRed}CLIENT {id}: ERROR: in channel should be empty{postfix}")
-        initID2inChannelMsgList[id] = None
+        initID2channelMsgList[id] = None
     ## starts recording incoming msgs on all incoming channels
-    initID2ifRecordInChannelMsgList[id] = True
+    initID2ifRecordMsgChannel[id] = True
         
 
     
@@ -259,7 +265,7 @@ def snapshotProcessing(inp):
 print(sys.argv)
 if len(sys.argv) != 2:
     print(f"{prefixRed}ERROR: Wrong command line parameter number!{postfix}")
-if sys.argv[1] not in ['A', 'B', 'C', 'D']:
+if sys.argv[1] not in idList:
     print(f"{prefixRed}ERROR: Wrong command line parameters!{postfix}")
 id = sys.argv[1]
 ind = id2ind(id)
