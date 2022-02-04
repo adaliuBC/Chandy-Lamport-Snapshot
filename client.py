@@ -44,7 +44,7 @@ def id2ind(id):
 def ind2id(ind):
     return chr(ord('A') + ind)
 
-def listening():
+def listening():  # new thread for each incoming msg
     while True:
         conn, addr = connListen.accept()
         conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) 
@@ -56,7 +56,6 @@ def listening():
 
 def messageProcessing(connListen):
     global balance, snapshotList, initID2localState
-    print("PROCESSING MESSAGE")
     data = connListen.recv(1024)
     while True:
         if not data:  
@@ -66,8 +65,7 @@ def messageProcessing(connListen):
             msg = decode(data)
             print(f"{prefixWhite}CLIENT {id}: Receive message: {msg}{postfix}")
             cmd = msg[0]
-            if cmd == "TRANSFER":
-            # receive TRANSFER
+            if cmd == "TRANSFER":  # 收到TRANSFER msg
                 # 更新 balance
                 senderID = msg[1]
                 amount = msg[2]
@@ -83,8 +81,7 @@ def messageProcessing(connListen):
                        and initID2ifRecordMsgChannel[initID][senderID] == True:
                         initID2channelMsgList[initID][senderID].append(msg)
             
-            elif cmd == "MARKER":
-            # receive MARKER
+            elif cmd == "MARKER":  # 收到MARKER msg
                 initID = msg[1]
                 senderID = msg[2]
                 # judge if first MARKER
@@ -94,21 +91,7 @@ def messageProcessing(connListen):
                         initID2channelMsgList[initID][posSenderID] = []
                     # record localState
                     initID2localState[initID] = balance
-                    # send MARKER to all outgoing channels
-                    time.sleep(3)   # !sleep
-                    for receiverID in connToList:
-                        receiverInd = id2ind(receiverID)
-                        conn = socket.socket()
-                        conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                        conn.bind((addr, portConn))
-                        targetAddr = addrList[receiverInd]
-                        targetPortListen = portListenList[receiverInd]
-                        #print(f"{prefixRed}{targetAddr}:{targetPortListen}{postfix}")
-                        conn.connect((targetAddr, targetPortListen))
-                        data = ["MARKER", initID, id]  # send TRANSFER msg
-                        print(f"{prefixGreen}CLIENT {id}: Send MARKER to client {receiverID}{postfix}")
-                        conn.send(encode(data))
-                        conn.close()
+
                     # record msgs from incoming channels
                     print(f"{prefixRed}CLIENT {id}: Start recording incoming msgs {msg}{postfix}")
                     for posSenderID in connFromList:
@@ -118,10 +101,25 @@ def messageProcessing(connListen):
                         else:
                             # other in channel, begin recording
                             initID2ifRecordMsgChannel[initID][posSenderID] = True
+                
+                    # send MARKER to all outgoing channels
+                    time.sleep(3)   # !sleep
+                    for receiverID in connToList:
+                        receiverInd = id2ind(receiverID)
+                        conn = socket.socket()
+                        conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                        conn.bind((addr, portConn))
+                        targetAddr = addrList[receiverInd]
+                        targetPortListen = portListenList[receiverInd]
+                        conn.connect((targetAddr, targetPortListen))
+                        data = ["MARKER", initID, id]  # send TRANSFER msg
+                        print(f"{prefixGreen}CLIENT {id}: Send MARKER to client {receiverID}{postfix}")
+                        conn.send(encode(data))
+                        conn.close()
+
+                    
                 else:  # following MARKER for channel
                     # 停止记录channel的新msgs
-                    #assert initID2ifRecordMsgChannel[initID][senderID] == True, \
-                    #    f"{prefixRed}CLIENT {id}: ERROR! Following MARKER received channel is not recording!{postfix}"
                     initID2ifRecordMsgChannel[initID][senderID] = False
 
                 # 检查是否所有incoming channels都收到了MARKER 
@@ -145,20 +143,18 @@ def messageProcessing(connListen):
                     conn.bind((addr, portConn))
                     targetAddr = addrList[id2ind(initID)]
                     targetPortListen = portListenList[id2ind(initID)]
-                    #print(f"{prefixRed}{targetAddr}:{targetPortListen}{postfix}")
                     conn.connect((targetAddr, targetPortListen))
-                    # time.sleep(3)
                     conn.send(encode(data))
                     print(f"{prefixGreen}CLIENT {id}: Send SNAPSHOT to client {initID}{postfix}")
                     print(f"{prefixGreen}CLIENT {id}: {data}{postfix}")
                     conn.close()
-
                     ## clean up localState, inMarkerList, inMsgList
                     initID2localState[initID] = None
                     initID2ifRecordMsgChannel[initID] = {}
                     initID2haschannelMarker[initID] = {}
                     initID2channelMsgList[initID] = {}
                     initID2completeChannelSenderList[initID] = []
+
             elif cmd == "SNAPSHOT":
                 # I am the init proc, I receive SNAPSHOT from all processes
                 # save snapshot
@@ -201,7 +197,7 @@ def messageProcessing(connListen):
             data = connListen.recv(1024)
 
 
-def inputProcessing():
+def inputProcessing():  # new thread for each input command
     while True:
         inp = input("Please input command:\n")
         inp = inp.split()
@@ -211,7 +207,7 @@ def inputProcessing():
             )
             subInputThread.daemon = True
             subInputThread.start()
-        elif inp[0] == "TRANSFER":  # TRANSFER targetClientID amount
+        elif inp[0] == "TRANSFER":  # cmd format: TRANSFER targetClientID amount
             subInputThread = threading.Thread(
                 target = transferProcessing, args = (inp, )
             )
@@ -234,12 +230,11 @@ def balanceProcessing(inp):
 
 def transferProcessing(inp):
     global balance
-    #print("TRANSFERING")
     cmd = inp[0]
     targetID = inp[1]
     amount = int(inp[2])
     assert cmd == "TRANSFER", f"{prefixRed}CLIENT {id}: Invalid Transfer Command!{postfix}"
-    if balance < amount:  # can not transfer
+    if balance < amount:  # 钱不够，fail transfer
         print(f"{prefixRed}CLIENT {id}: INSUFFICIENT BALANCE! balance = ${balance} < amount = ${amount}{postfix}")
     else:  # success transfer
         print(f"{prefixYellow}CLIENT {id}: Current Balance: ${balance}{postfix}")
