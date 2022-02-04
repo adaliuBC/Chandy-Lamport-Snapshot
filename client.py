@@ -182,7 +182,7 @@ def messageProcessing(connListen):
                         #else:  # 是自己的snapshot
                         #    print(f"{prefixGreen}  CLIENT {senderID}: Balance ${initID2localState[id]}{postfix}")
                         if len(senderChannelState) > 0:
-                            print(f"{prefixGreen}  Incoming channels for CLIENT {id}:{postfix}")
+                            print(f"{prefixGreen}  Incoming channels for CLIENT {senderID}:{postfix}")
                             for channelState in senderChannelState:
                                 #print(channelState)
                                 chaSenderID = channelState[0]
