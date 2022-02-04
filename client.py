@@ -73,9 +73,10 @@ def messageProcessing(connListen):
                 amount = msg[2]
                 assert senderID in idList, f"{prefixRed}Wrong senderID {senderID} in TRANSFER msg!{postfix}"
                 balance += int(amount)
-                print(f"{prefixYellow}CLIENT {id}: Receive ${amount} from CLIENT {senderID}")
-                print(f"{prefixYellow}CLIENT {id}: Current balance: ${balance}")
+                print(f"{prefixYellow}CLIENT {id}: Receive ${amount} from CLIENT {senderID}{postfix}")
+                print(f"{prefixYellow}CLIENT {id}: Current balance: ${balance}{postfix}")
                 # 如果正在snapshot，在对应channel中存msg
+                print(f"{prefixRed}CLIENT {id}: recordingChannel: {initID2ifRecordMsgChannel}{postfix}")
                 for initID in idList:
                     if initID2ifRecordMsgChannel[initID] \
                        and len(initID2ifRecordMsgChannel[initID]) > 0 \
@@ -84,7 +85,6 @@ def messageProcessing(connListen):
             
             elif cmd == "MARKER":
             # receive MARKER
-                print(f"{prefixWhite}CLIENT {id}: Receive a MARKER!{postfix}")
                 initID = msg[1]
                 senderID = msg[2]
                 # judge if first MARKER
@@ -95,7 +95,7 @@ def messageProcessing(connListen):
                     # record localState
                     initID2localState[initID] = balance
                     # send MARKER to all outgoing channels
-                    time.sleep(1)   # !sleep
+                    time.sleep(3)   # !sleep
                     for receiverID in connToList:
                         receiverInd = id2ind(receiverID)
                         conn = socket.socket()
@@ -110,6 +110,7 @@ def messageProcessing(connListen):
                         conn.send(encode(data))
                         conn.close()
                     # record msgs from incoming channels
+                    print(f"{prefixRed}CLIENT {id}: Start recording incoming msgs {msg}{postfix}")
                     for posSenderID in connFromList:
                         if senderID == posSenderID:  
                             # first MARKER's in channel, set as empty
@@ -138,7 +139,7 @@ def messageProcessing(connListen):
                         # sender->me的channel，state是msg list
                         data.append(channelState)
                     # send SNAPSHOT msg to init proc
-                    time.sleep(1)   # !sleep
+                    time.sleep(3)   # !sleep
                     conn = socket.socket()
                     conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                     conn.bind((addr, portConn))
@@ -245,7 +246,7 @@ def transferProcessing(inp):
         # update balance
         balance -= amount
         # send transfer msg to targetClient
-        time.sleep(1)   # !sleep
+        time.sleep(3)   # !sleep
         conn = socket.socket()
         conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         conn.bind((addr, portConn))
@@ -254,7 +255,6 @@ def transferProcessing(inp):
         conn.connect((targetAddr, targetPortListen))
         data = ["TRANSFER", id, amount]  # send TRANSFER msg
         print(f"{prefixYellow}CLIENT {id}: Transfer ${amount} to client {targetID}{postfix}")
-        # time.sleep(3)
         conn.send(encode(data))
         print(f"{prefixYellow}CLIENT {id}: Current Balance: ${balance}{postfix}")
         conn.close()
@@ -266,7 +266,7 @@ def snapshotProcessing(inp):
     global id, ind
     initID2localState[id] = copy.deepcopy(balance)
     ## send MARKER on all outgoing channels
-    time.sleep(1)   # !sleep
+    time.sleep(3)   # !sleep
     for receiverID in connToList:
         receiverInd = id2ind(receiverID)
         targetAddr = addrList[receiverInd]
@@ -345,6 +345,5 @@ listenThread.start()
 
 # main: sleep in dead loop
 while True:
-    time.sleep(1)
-    #print(initID2localState[id])
+    time.sleep(5)
 connListen.close()
