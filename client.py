@@ -259,7 +259,16 @@ def snapshotProcessing(inp):
     ## record local state
     global initID2localState
     global id, ind
-    initID2localState[id] = copy.deepcopy(balance)
+    initID2localState[id] = copy.deepcopy(balance)    
+    ## reset当前记录的incoming channels
+    if initID2channelMsgList[id]:
+        print(f"{prefixRed}CLIENT {id}: ERROR: in channel should be empty{postfix}")
+        initID2channelMsgList[id] = {}
+    ## starts recording incoming msgs on all incoming channels
+    initID2ifRecordMsgChannel[id] = {}
+    for senderID in connFromList:
+        initID2ifRecordMsgChannel[id][senderID] = True
+        initID2channelMsgList[id][senderID] = []   
     ## send MARKER on all outgoing channels
     time.sleep(3)   # !sleep
     for receiverID in connToList:
@@ -276,16 +285,7 @@ def snapshotProcessing(inp):
         conn.send(encode(data))
         print(f"{prefixGreen}CLIENT {id}: Send MARKER to client {receiverID}{postfix}")
         conn.close()
-    
-    ## reset当前记录的incoming channels
-    if initID2channelMsgList[id]:
-        print(f"{prefixRed}CLIENT {id}: ERROR: in channel should be empty{postfix}")
-        initID2channelMsgList[id] = {}
-    ## starts recording incoming msgs on all incoming channels
-    initID2ifRecordMsgChannel[id] = {}
-    for senderID in connFromList:
-        initID2ifRecordMsgChannel[id][senderID] = True
-        initID2channelMsgList[id][senderID] = []    
+ 
 
     
 
