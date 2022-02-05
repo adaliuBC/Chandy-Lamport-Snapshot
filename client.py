@@ -236,6 +236,8 @@ def transferProcessing(inp):
     assert cmd == "TRANSFER", f"{prefixRed}CLIENT {id}: Invalid Transfer Command!{postfix}"
     if balance < amount:  # 钱不够，fail transfer
         print(f"{prefixRed}CLIENT {id}: INSUFFICIENT BALANCE! balance = ${balance} < amount = ${amount}{postfix}")
+    elif targetID not in connToList:
+        print(f"{prefixRed}CLIENT {id}: NOT CONNECTED! {id}--x->{targetID}{postfix}")
     else:  # success transfer
         print(f"{prefixYellow}CLIENT {id}: Current Balance: ${balance}{postfix}")
         # update balance
