@@ -201,7 +201,9 @@ def inputProcessing():  # new thread for each input command
     while True:
         inp = input("Please input command:\n")
         inp = inp.split()
-        if inp[0] == "BALANCE":
+        if len(inp) == 0:
+            print(f"{prefixRed}CLIENT {id}: ERROR - EMPTY COMMAND!{postfix}")
+        elif inp[0] == "BALANCE":
             subInputThread = threading.Thread(
                 target = balanceProcessing, args = (inp, )
             )
