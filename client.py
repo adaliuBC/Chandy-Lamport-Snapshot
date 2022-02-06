@@ -69,12 +69,12 @@ def messageProcessing(connListen):
                 # 更新 balance
                 senderID = msg[1]
                 amount = msg[2]
-                assert senderID in idList, f"{prefixRed}Wrong senderID {senderID} in TRANSFER msg!{postfix}"
+                assert senderID in idList, f"{prefixRed}ERROR: Wrong senderID {senderID} in TRANSFER msg!{postfix}"
                 balance += int(amount)
                 print(f"{prefixYellow}CLIENT {id}: Receive ${amount} from CLIENT {senderID}{postfix}")
                 print(f"{prefixYellow}CLIENT {id}: Current balance: ${balance}{postfix}")
                 # 如果正在snapshot，在对应channel中存msg
-                print(f"{prefixRed}CLIENT {id}: recordingChannel: {initID2ifRecordMsgChannel}{postfix}")
+                # print(f"{prefixGreen}CLIENT {id}: recordingChannel: {initID2ifRecordMsgChannel}{postfix}")
                 for initID in idList:
                     if initID2ifRecordMsgChannel[initID] \
                        and len(initID2ifRecordMsgChannel[initID]) > 0 \
@@ -93,7 +93,7 @@ def messageProcessing(connListen):
                     initID2localState[initID] = balance
 
                     # record msgs from incoming channels
-                    print(f"{prefixRed}CLIENT {id}: Start recording incoming msgs {msg}{postfix}")
+                    # print(f"{prefixGreen}CLIENT {id}: Start recording incoming msgs {msg}{postfix}")
                     for posSenderID in connFromList:
                         if senderID == posSenderID:  
                             # first MARKER's in channel, set as empty
@@ -113,7 +113,7 @@ def messageProcessing(connListen):
                         targetPortListen = portListenList[receiverInd]
                         conn.connect((targetAddr, targetPortListen))
                         data = ["MARKER", initID, id]  # send TRANSFER msg
-                        print(f"{prefixGreen}CLIENT {id}: Send MARKER to client {receiverID}{postfix}")
+                        print(f"{prefixWhite}CLIENT {id}: Send MARKER to client {receiverID}{postfix}")
                         conn.send(encode(data))
                         conn.close()
 
@@ -145,8 +145,8 @@ def messageProcessing(connListen):
                     targetPortListen = portListenList[id2ind(initID)]
                     conn.connect((targetAddr, targetPortListen))
                     conn.send(encode(data))
-                    print(f"{prefixGreen}CLIENT {id}: Send SNAPSHOT to client {initID}{postfix}")
-                    print(f"{prefixGreen}CLIENT {id}: {data}{postfix}")
+                    print(f"{prefixWhite}CLIENT {id}: Send SNAPSHOT to client {initID}{postfix}")
+                    print(f"{prefixWhite}CLIENT {id}: {data}{postfix}")
                     conn.close()
                     ## clean up localState, inMarkerList, inMsgList
                     initID2localState[initID] = None
@@ -168,7 +168,7 @@ def messageProcessing(connListen):
                     if pID not in snapshotList.keys():
                         receiveAllSnapshot = False
                 if receiveAllSnapshot:
-                    print(f"{prefixGreen}CLIENT {id}: SNAPSHOT complete{postfix}")
+                    print(f"{prefixWhite}CLIENT {id}: SNAPSHOT complete{postfix}")
                     #print(f"{prefixGreen}CLIENT {id}: Balance ${initID2localState[id]}{postfix}")
                     for senderID, senderSnapshot in snapshotList.items():
                         senderLocalState = senderSnapshot[0]
@@ -225,7 +225,7 @@ def inputProcessing():  # new thread for each input command
 def balanceProcessing(inp):
     cmd = inp[0]
     assert cmd == "BALANCE", \
-        f"{prefixRed}CLIENT {id}: Invalid Balance Command!{postfix}"
+        f"{prefixRed}CLIENT {id}: ERROR - Invalid Balance Command!{postfix}"
     print(f"{prefixYellow}CLIENT {id}: My balance is ${balance}{postfix}")
 
 def transferProcessing(inp):
@@ -233,11 +233,11 @@ def transferProcessing(inp):
     cmd = inp[0]
     targetID = inp[1]
     amount = int(inp[2])
-    assert cmd == "TRANSFER", f"{prefixRed}CLIENT {id}: Invalid Transfer Command!{postfix}"
+    assert cmd == "TRANSFER", f"{prefixRed}CLIENT {id}: Invalid ERROR - Transfer Command!{postfix}"
     if balance < amount:  # 钱不够，fail transfer
         print(f"{prefixRed}CLIENT {id}: INSUFFICIENT BALANCE! balance = ${balance} < amount = ${amount}{postfix}")
     elif targetID not in connToList:
-        print(f"{prefixRed}CLIENT {id}: NOT CONNECTED! {id}--x->{targetID}{postfix}")
+        print(f"{prefixRed}CLIENT {id}: NOT CONNECTED! CLIENT {id} --X-> CLIENT {targetID}{postfix}")
     else:  # success transfer
         print(f"{prefixYellow}CLIENT {id}: Current Balance: ${balance}{postfix}")
         # update balance
@@ -283,9 +283,9 @@ def snapshotProcessing(inp):
         conn.bind((addr, portConn))
         conn.connect((targetAddr, targetPortListen))
         data = ["MARKER", id, id]  # ["MARKER", initID, senderID]
-        print(f"{prefixGreen}CLIENT {id}: SNAPSHOT initial{postfix}")
+        print(f"{prefixWhite}CLIENT {id}: SNAPSHOT initial{postfix}")
         conn.send(encode(data))
-        print(f"{prefixGreen}CLIENT {id}: Send MARKER to client {receiverID}{postfix}")
+        print(f"{prefixWhite}CLIENT {id}: Send MARKER to client {receiverID}{postfix}")
         conn.close()
  
 
