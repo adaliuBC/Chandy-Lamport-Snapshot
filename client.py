@@ -20,22 +20,20 @@ global connListen
 global id, ind
 global balance
 global localState
-global initID2localState, initID2haschannelMarker
+global initID2localState
 global initID2channelMsgList, initID2ifRecordMsgChannel
 global initID2completeChannelSenderList
 initID2localState = {}
-initID2haschannelMarker = {}
 initID2channelMsgList = {}
 initID2ifRecordMsgChannel = {}
 initID2completeChannelSenderList = {}
 for id in idList:
     initID2localState[id] = None           # local state (balance)
     initID2ifRecordMsgChannel[id] = {}     # channel是否存msg {initID => {senderID => T/F}}
-    initID2haschannelMarker[id] = {}       # channel是否已收到首个MARKER
     initID2channelMsgList[id] = {}         # channel存的msg list
-    initID2completeChannelSenderList[id] = []  # channel已经收到第二个MARKER的sender list
+    initID2completeChannelSenderList[id] = []  # 已经收到第二个MARKER、不再记录的channel list
 global snapshotList
-snapshotList = {}  # 我作为init proc收到的snapshot列表
+snapshotList = {}  # The snapshot list I received as init process
 balance = 10.0
 
 def id2ind(id):
@@ -65,15 +63,15 @@ def messageProcessing(connListen):
             msg = decode(data)
             print(f"{prefixWhite}CLIENT {id}: Receive message: {msg}{postfix}")
             cmd = msg[0]
-            if cmd == "TRANSFER":  # 收到TRANSFER msg
-                # 更新 balance
+            if cmd == "TRANSFER":  # receive TRANSFER msg
                 senderID = msg[1]
                 amount = msg[2]
                 assert senderID in idList, f"{prefixRed}ERROR: Wrong senderID {senderID} in TRANSFER msg!{postfix}"
+                # update balance
                 balance += int(amount)
                 print(f"{prefixYellow}CLIENT {id}: Receive ${amount} from CLIENT {senderID}{postfix}")
                 print(f"{prefixYellow}CLIENT {id}: Current balance: ${balance}{postfix}")
-                # 如果正在snapshot，在对应channel中存msg
+                # if is recording msg for this channel during SNAPSHOT, save msg in channel
                 # print(f"{prefixGreen}CLIENT {id}: recordingChannel: {initID2ifRecordMsgChannel}{postfix}")
                 for initID in idList:
                     if initID2ifRecordMsgChannel[initID] \
@@ -81,7 +79,7 @@ def messageProcessing(connListen):
                        and initID2ifRecordMsgChannel[initID][senderID] == True:
                         initID2channelMsgList[initID][senderID].append(msg)
             
-            elif cmd == "MARKER":  # 收到MARKER msg
+            elif cmd == "MARKER":  # receive MARKER msg
                 initID = msg[1]
                 senderID = msg[2]
                 # judge if first MARKER
@@ -119,25 +117,25 @@ def messageProcessing(connListen):
 
                     
                 else:  # following MARKER for channel
-                    # 停止记录channel的新msgs
+                    # stop recording msg for this channel
                     initID2ifRecordMsgChannel[initID][senderID] = False
 
-                # 检查是否所有incoming channels都收到了MARKER 
+                # check if all incoming channels has received MARKER 
                 isSnapshotTerminate = True
                 if not initID2ifRecordMsgChannel[initID]:
                     isSnapshotTerminate = False
                 for senderID, flag in initID2ifRecordMsgChannel[initID].items():
                     if flag != False:
                         isSnapshotTerminate= False
-                if isSnapshotTerminate:  # 如果都收到了，就terminate
+                if isSnapshotTerminate:  # if all MARKER are received, terminate SNAPSHOT process
                     # build SNAPSHOT msg
                     data = ["SNAPSHOT", id, initID2localState[initID]]
                     for senderID, state in initID2channelMsgList[initID].items():
                         channelState = [senderID, id, state]  
-                        # sender->me的channel，state是msg list
+                        # channel is from sender to me，state if the list of msgs
                         data.append(channelState)
                     # send SNAPSHOT msg to init proc
-                    time.sleep(3)   # !sleep
+                    time.sleep(3)
                     conn = socket.socket()
                     conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                     conn.bind((addr, portConn))
@@ -151,7 +149,6 @@ def messageProcessing(connListen):
                     ## clean up localState, inMarkerList, inMsgList
                     initID2localState[initID] = None
                     initID2ifRecordMsgChannel[initID] = {}
-                    initID2haschannelMarker[initID] = {}
                     initID2channelMsgList[initID] = {}
                     initID2completeChannelSenderList[initID] = []
 
@@ -162,7 +159,7 @@ def messageProcessing(connListen):
                 senderLocalState = msg[2]
                 senderChannelState = msg[3:]
                 snapshotList[senderID] = [senderLocalState, senderChannelState]
-                # 如果收到所有snapshot，就concat并且print
+                # if all snapshots are received, concat and print
                 receiveAllSnapshot = True
                 for pID in idList:
                     if pID not in snapshotList.keys():
@@ -173,14 +170,10 @@ def messageProcessing(connListen):
                     for senderID, senderSnapshot in snapshotList.items():
                         senderLocalState = senderSnapshot[0]
                         senderChannelState = senderSnapshot[1:][0]
-                        #if senderID != id:  # 不是自己的snapshot
                         print(f"{prefixGreen}  CLIENT {senderID}: Balance ${senderLocalState}{postfix}")
-                        #else:  # 是自己的snapshot
-                        #    print(f"{prefixGreen}  CLIENT {senderID}: Balance ${initID2localState[id]}{postfix}")
                         if len(senderChannelState) > 0:
                             print(f"{prefixGreen}  Incoming channels for CLIENT {senderID}:{postfix}")
                             for channelState in senderChannelState:
-                                #print(channelState)
                                 chaSenderID = channelState[0]
                                 chaReceiverID = channelState[1]
                                 chaMsg = channelState[2]
@@ -190,7 +183,7 @@ def messageProcessing(connListen):
                     initID2ifRecordMsgChannel[id] = {}
                     initID2channelMsgList[id] = {}
                     initID2localState[id] = None
-                    # 彻底结束snapshot流程
+                    # end of SNAPSHOT process
             
             else:
                 print(f"{prefixRed}CLIENT{id} -- ERROR: Receive invalid msg {msg}{postfix}")
@@ -236,7 +229,7 @@ def transferProcessing(inp):
     targetID = inp[1]
     amount = int(inp[2])
     assert cmd == "TRANSFER", f"{prefixRed}CLIENT {id}: Invalid ERROR - Transfer Command!{postfix}"
-    if balance < amount:  # 钱不够，fail transfer
+    if balance < amount:  # balance not enough, fail transfer
         print(f"{prefixRed}CLIENT {id}: INSUFFICIENT BALANCE! balance = ${balance} < amount = ${amount}{postfix}")
     elif targetID not in connToList:
         print(f"{prefixRed}CLIENT {id}: NOT CONNECTED! CLIENT {id} --X-> CLIENT {targetID}{postfix}")
@@ -289,13 +282,11 @@ def snapshotProcessing(inp):
         conn.send(encode(data))
         print(f"{prefixWhite}CLIENT {id}: Send MARKER to client {receiverID}{postfix}")
         conn.close()
- 
 
-    
 
 # build connection
 ## get client index from param
-## Who am I?
+## Who am I? ID given in argv
 print(sys.argv)
 if len(sys.argv) != 2:
     print(f"{prefixRed}ERROR: Wrong command line parameter number!{postfix}")
@@ -326,18 +317,18 @@ print(addr, portListen)
 print("I am connect to: ", connToList)
 print("I am connect by: ", connFromList)
 
-
-
 # build listen socket
 connListen = socket.socket(family=socket.AF_INET, type=socket.SOCK_STREAM, proto=0)
 connListen.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-connListen.bind((addr, portListen))  #用于监听的port
+connListen.bind((addr, portListen))  #listening port
 connListen.listen(5)
 
+# thread used to process input
 inputProcThread = threading.Thread(target=inputProcessing)
 inputProcThread.daemon = True
 inputProcThread.start()
 
+# thread used to listen
 listenThread = threading.Thread(target=listening)
 listenThread.daemon = True
 listenThread.start()
